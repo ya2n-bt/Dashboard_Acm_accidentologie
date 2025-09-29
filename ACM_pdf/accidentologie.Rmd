@@ -1,0 +1,1119 @@
+---
+title: "\\textbf{Étude de l'accidentologie en France en 2022}"
+author: Iruomachi IRUOMAH, Emmanuel PAGUIEL, Yann BROCHET
+output: 
+  pdf_document:
+    toc: true
+    toc_depth: 2
+    number_sections: true
+    includes: 
+      in_header: style.tex
+header-includes:
+  - \renewcommand{\contentsname}{Sommaire}
+  - \usepackage{graphicx}
+  - \usepackage{fancyhdr}
+  - \pagestyle{fancy}
+  - \fancyhf{}
+  - \fancyfoot[C]{\thepage} 
+  - \fancyfoot[R]{\includegraphics[width=3cm]{image/téléchargement.png}}
+  - \renewcommand{\headrulewidth}{0pt}
+  - \renewcommand{\footrulewidth}{0.4pt} 
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r}
+#| message: false
+library(data.table)
+library(dplyr)
+library(FactoMineR)
+library(factoextra)
+library(Factoshiny)
+library(ggplot2)
+library(kableExtra)
+library(explor)
+library(patchwork)
+library(knitr)
+```
+
+```{r}
+dfcarac2 <- fread("Data/carcteristiques-2022.csv")
+
+dfcarac <- dfcarac2 |> rename(Num_Acc = Accident_Id)
+dfcarac$jour <- as.numeric(dfcarac$jour)
+
+dfcarac <- dfcarac |> 
+  mutate(lum = recode(lum,
+                      `1` = "Plein jour",
+                      `2` = "Crépuscule ou aube",
+                      `3` = "Nuit sans éclairage public",
+                      `4` = "Nuit avec éclairage public non allumé",
+                      `5` = "Nuit avec éclairage public allumé")) |> 
+  mutate(agg = recode(agg,
+                      `1` = "Hors agglomération",
+                      `2` = "En agglomération")) |> 
+  mutate(int = recode(int,
+                      `1` = "Hors intersection",
+                      `2` = "Intersection simple",
+                      `3` = "Intersection simple",
+                      `4` = "Intersection simple",
+                      `5` = "Intersection complexe",
+                      `6` = "Giratoire",
+                      `7` = "Giratoire",
+                      `8` = "Autre intersection",
+                      `9` = "Autre intersection")) |> 
+  mutate(atm = recode(atm,
+                      ` -1` = "Autre",
+                      `1` = "Conditions normales",
+                      `2` = "Pluie",
+                      `3` = "Pluie",
+                      `4` = "Conditions difficiles",
+                      `5` = "Mauvaise visibilité",
+                      `6` = "Conditions difficiles",
+                      `7` = "Mauvaise visibilité",
+                      `8` = "Conditions normales",
+                      `9` = "Autre")) |> 
+  mutate(col = recode(col,
+                      ` -1` = "Non renseigné",
+                      `1` = "Deux véhicules - frontale",
+                      `2` = "Deux véhicules – par l’arrière",
+                      `3` = "Deux véhicules – par le coté",
+                      `4` = "Trois véhicules et plus – en chaîne",
+                      `5` = "Trois véhicules et plus - collisions multiples",
+                      `6` = "Autre collision",
+                      `7` = "Sans collision")) |> 
+   mutate(jour = case_when(
+    jour >= 1 & jour <= 10 ~ "Début du mois",
+    jour >= 11 & jour <= 20 ~ "Milieu du mois",
+    jour >= 21 & jour <= 31 ~ "Fin du mois",
+    TRUE ~ "Non renseigné"
+  )) |> 
+  mutate(mois = case_when(
+    mois == "1" ~ "Janvier",
+    mois == "2" ~ "Février",
+    mois == "3" ~ "Mars",
+    mois == "4" ~ "Avril",
+    mois == "5" ~ "Mai",
+    mois == "6" ~ "Juin",
+    mois == "7" ~ "Juillet",
+    mois == "8" ~ "Août",
+    mois == "9" ~ "Septembre",
+    mois == "10" ~ "Octobre",
+    mois == "11" ~ "Novembre",
+    mois == "12" ~ "Décembre")) 
+
+dflieux <- fread("Data/lieux-2022.csv")
+
+dflieux <- dflieux |> 
+  mutate(catr = recode(catr,
+                       `1` = "Autoroute",
+                       `2` = "Route nationale",
+                       `3` = "Route Départementale",
+                       `4` = "Voie Communales",
+                       `5` = "Hors réseau public",
+                       `6` = "Parc de stationnement ouvert à la circulation publique",
+                       `7` = "Routes de métropole urbaine",
+                       `9` = "Autre")) |> 
+  mutate(circ = recode(circ,
+                       ` -1` = "Non renseigné",
+                       `1` = "A sens unique",
+                       `2` = "Bidirectionnelle",
+                       `3` = "A chaussées séparées",
+                       `4` = "Avec voies d’affectation variable")) |> 
+  mutate(vosp = recode(vosp,
+                       ` -1` = "Non renseigné",
+                       `0` = "Sans objet",
+                       `1` = "Piste cyclable",
+                       `2` = "Bande cyclable",
+                       `3` = "Voie réservée")) |> 
+  mutate(prof = recode(prof,
+                       ` -1` = "Non renseigné",
+                       `1` = "Plat",
+                       `2` = "Pente",
+                       `3` = "Sommet de côte")) |> 
+  mutate(plan = recode(plan,
+                       ` -1` = "Non renseigné",
+                       `1` = "Partie rectiligne",
+                       `2` = "En courbe à gauche",
+                       `3` = "En courbe à droite",
+                       `4` = "En « S »")) |> 
+  mutate(surf = recode(surf,
+                       ` -1` = "Non renseigné",
+                       `1` = "Normale",
+                       `2` = "Mouillée",
+                       `3` = "Flaques",
+                       `4` = "Inondée",
+                       `5` = "Enneigée",
+                       `6` = "Boue",
+                       `7` = "Verglacée",
+                       `8` = "Corps gras – huile",
+                       `9` = "Autre")) |> 
+  mutate(infra = recode(infra,
+                        ` -1` = "Non renseigné",
+                        `0` = "Aucun",
+                        `1` = "Souterrain - tunnel",
+                        `2` = "Pont - autopont",
+                        `3` = "Bretelle d’échangeur ou de raccordement",
+                        `4` = "Voie ferrée",
+                        `5` = "Carrefour aménagé",
+                        `6` = "Zone piétonne",
+                        `7` = "Zone de péage",
+                        `8` = "Chantier",
+                        `9` = "Autres")) |> 
+  mutate(situ = recode(situ,
+                        ` -1` = "Non renseigné",
+                        `0` = "Aucun",
+                        `1` = "Sur chaussée",
+                        `2` = "Sur bande d’arrêt d’urgence",
+                        `3` = "Sur accotement",
+                        `4` = "Sur trottoir",
+                        `5` = "Sur piste cyclable",
+                        `6` = "Sur autre voie spéciale",
+                        `8` = "Autres")) 
+  
+
+dfvehicules <- fread("Data/vehicules-2022.csv")
+
+dfvehicules <- dfvehicules |> 
+  mutate(senc = recode(senc,
+                       ` -1` = "Non renseigné",
+                       `0` = "Inconnu",
+                       `1` = "PK ou PR ou numéro d’adresse postale croissant",
+                       `2` = "PK ou PR ou numéro d’adresse postale décroissant",
+                       `3` = "Absence de repère")) |> 
+  mutate(catv = recode(catv,
+                       ' -1' = "Non renseigné",
+                       `0` = "Indéterminable",
+                       `1` = "Bicyclette",
+                       `2` = "Cyclomoteur <50cm3",
+                       `3` = "Voiturette (Quadricycle à moteur carrossé)",
+                       `4` = "Référence inutilisée depuis 2006 (scooter immatriculé)",
+                       `5` = "Référence inutilisée depuis 2006 (motocyclette)",
+                       `6` = "Référence inutilisée depuis 2006 (side-car)",
+                       `7` = "VL seul",
+                       `8` = "Référence inutilisée depuis 2006 (VL + caravane)",
+                       `9` = "Référence inutilisée depuis 2006 (VL + remorque)",
+                       `10` = "VU seul 1,5T <= PTAC <= 3,5T avec ou sans remorque",
+                       `11` = "Référence inutilisée depuis 2006 (VU (10) + caravane)",
+                       `12` = "Référence inutilisée depuis 2006 (VU (10) + remorque)",
+                       `13` = "PL seul 3,5T < PTAC <= 7,5T",
+                       `14` = "PL seul > 7,5T",
+                       `15` = "PL > 3,5T + remorque",
+                       `16` = "Tracteur routier seul",
+                       `17` = "Tracteur routier + semi-remorque",
+                       `18` = "Référence inutilisée depuis 2006 (transport en commun)",
+                       `19` = "Référence inutilisée depuis 2006 (tramway)",
+                       `20` = "Engin spécial",
+                       `21` = "Tracteur agricole",
+                       `30` = "Scooter < 50 cm3",
+                       `31` = "Motocyclette > 50 cm3 et <= 125 cm3",
+                       `32` = "Scooter > 50 cm3 et <= 125 cm3",
+                       `33` = "Motocyclette > 125 cm3",
+                       `34` = "Scooter > 125 cm3",
+                       `35` = "Quad léger <= 50 cm3",
+                       `36` = "Quad lourd > 50 cm3",
+                       `37` = "Autobus",
+                       `38` = "Autocar",
+                       `39` = "Train",
+                       `40` = "Tramway",
+                       `41` = "3RM <= 50 cm3",
+                       `42` = "3RM > 50 cm3 <= 125 cm3",
+                       `43` = "3RM > 125 cm3",
+                       `50` = "EDP à moteur",
+                       `60` = "EDP sans moteur",
+                       `80` = "VAE",
+                       `99` = "Autre véhicule")) |> 
+  mutate(obs = recode(obs,
+                      ` -1` = "Non renseigné",
+                      `0` = "Sans objet",
+                      `1` = "Véhicule en stationnement",
+                      `2` = "Arbre",
+                      `3` = "Glissière métallique",
+                      `4` = "Glissière béton",
+                      `5` = "Autre glissière",
+                      `6` = "Bâtiment, mur, pile de pont",
+                      `7` = "Support de signalisation verticale ou poste d’appel d’urgence",
+                      `8` = "Poteau",
+                      `9` = "Mobilier urbain",
+                      `10` = "Parapet",
+                      `11` = "Ilot, refuge, borne haute",
+                      `12` = "Bordure de trottoir",
+                      `13` = "Fossé, talus, paroi rocheuse",
+                      `14` = "Autre obstacle fixe sur chaussée",
+                      `15` = "Autre obstacle fixe sur trottoir ou accotement",
+                      `16` = "Sortie de chaussée sans obstacle",
+                      `17` = "Buse – tête d’aqueduc")) |> 
+  mutate(obsm = recode(obsm,
+                       ` -1` = "Non renseigné",
+                       `0` = "Aucun",
+                       `1` = "Piéton",
+                       `2` = "Véhicule",
+                       `4` = "Véhicule sur rail",
+                       `5` = "Animal domestique",
+                       `6` = "Animal sauvage",
+                       `9` = "Autre")) |> 
+  mutate(choc = recode(choc,
+                       ` -1` = "Non renseigné",
+                       `0` = "Aucun",
+                       `1` = "Avant",
+                       `2` = "Avant",
+                       `3` = "Avant",
+                       `4` = "Arrière",
+                       `5` = "Arrière",
+                       `6` = "Arrière",
+                       `7` = "Côté",
+                       `8` = "Côté",
+                       `9` = "Chocs multiples (tonneaux)")) |> 
+  mutate(manv = recode(manv,
+                       ` -1` = "Non renseigné",
+                       `0` = "Inconnue",
+                       `1` = "Sans changement de direction",
+                       `2` = "Même sens, même file",
+                       `3` = "Entre 2 files",
+                       `4` = "En marche arrière",
+                       `5` = "A contresens",
+                       `6` = "En franchissant le terre-plein central",
+                       `7` = "Dans le couloir bus, dans le même sens",
+                       `8` = "Dans le couloir bus, dans le sens inverse",
+                       `9` = "En s’insérant",
+                       `10` = "En faisant demi-tour sur la chaussée",
+                       `11` = "A gauche (Déporté)",
+                       `12` = "A droite (Déporté)",
+                       `13` = "A gauche (Tournant)",
+                       `14` = "A droite (Tournant)",
+                       `15` = "A gauche (Dépassant)",
+                       `16` = "A droite (Dépassant)",
+                       `17` = "Traversant la chaussée",
+                       `18` = "Manœuvre de stationnement",
+                       `19` = "Manœuvre d’évitement",
+                       `20` = "Ouverture de porte",
+                       `21` = "Arrêté (hors stationnement)",
+                       `22` = "En stationnement (avec occupants)",
+                       `23` = "Circulant sur trottoir",
+                       `24` = "Autres manœuvres")) |> 
+  mutate(motor = recode(motor,
+                       ` -1` = "Non renseigné",
+                       `0` = "Inconnue",
+                       `1` = "Hydrocarbures",
+                       `2` = "Hybride électrique",
+                       `3` = "Electrique",
+                       `4` = "Hydrogène",
+                       `5` = "Humaine",
+                       `6` = "Autre"))
+  
+dfusagers <- fread("Data/usagers-2022.csv")
+dfusagers_avec_dep <- dfusagers |>
+  left_join(dfcarac |> select(Num_Acc, dep), by = "Num_Acc")
+dfusagers <- dfusagers |> 
+  mutate(catu = recode(catu,
+                       `1` = "Conducteur",
+                       `2` = "Passager",
+                       `3` = "Piéton")) |> 
+  mutate(grav = recode(grav,
+                       `1` = "Indemne",
+                       `2` = "Tué",
+                       `3` = "Blessé hospitalisé",
+                       `4` = "Blessé léger")) |> 
+  mutate(sexe = recode(sexe,
+                       `1` = "Masculin",
+                       `2` = "Féminin")) |> 
+  mutate(trajet = recode(trajet,
+                        ` -1` = "Non renseigné",
+                        `0` = "Non renseigné",
+                        `1` = "Domicile – travail",
+                        `2` = "Domicile – école",
+                        `3` = "Courses – achats",
+                        `4` = "Utilisation professionnelle",
+                        `5` = "Promenade – loisirs",
+                        `9` = "Autre")) |> 
+  mutate(secu1 = recode(secu1,
+                        ` -1` = "Non renseigné",
+                        `0` = "Aucun équipement",
+                        `1` = "Ceinture",
+                        `2` = "Casque",
+                        `3` = "Dispositif enfants",
+                        `4` = "Gilet réfléchissant",
+                        `5` = "Airbag (2RM/3RM)",
+                        `6` = "Gants (2RM/3RM)",
+                        `7` = "Gants + Airbag (2RM/3RM)",
+                        `8` = "Non déterminable",
+                        `9` = "Autre")) |> 
+  mutate(secu2 = recode(secu2,
+                        ` -1` = "Non renseigné",
+                        `0` = "Aucun équipement",
+                        `1` = "Ceinture",
+                        `2` = "Casque",
+                        `3` = "Dispositif enfants",
+                        `4` = "Gilet réfléchissant",
+                        `5` = "Airbag (2RM/3RM)",
+                        `6` = "Gants (2RM/3RM)",
+                        `7` = "Gants + Airbag (2RM/3RM)",
+                        `8` = "Non déterminable")) |> 
+  mutate(secu3 = recode(secu3,
+                        ` -1` = "Non renseigné",
+                        `0` = "Aucun équipement",
+                        `1` = "Ceinture",
+                        `2` = "Casque",
+                        `3` = "Dispositif enfants",
+                        `4` = "Gilet réfléchissant",
+                        `5` = "Airbag (2RM/3RM)",
+                        `6` = "Gants (2RM/3RM)",
+                        `7` = "Gants + Airbag (2RM/3RM)",
+                        `8` = "Non déterminable",
+                        `9` = "Autre")) |> 
+  mutate(locp = recode(locp,
+                       ` -1` = "Non renseigné",
+                       `0` = "Sans objet",
+                       `1` = "A + 50 m du passage piéton",
+                       `2` = "A - 50 m du passage piéton",
+                       `3` = "Sur passage piéton sans signalisation lumineuse (passage piéton)",
+                       `4` = "Sur passage piéton avec signalisation lumineuse (passage piéton)",
+                       `5` = "Sur trottoir",
+                       `6` = "Sur accotement",
+                       `7` = "Sur refuge ou BAU",
+                       `8` = "Sur contre allée",
+                       `9` = "Inconnue")) |> 
+  mutate(actp = recode(actp,
+                       ` -1` = "Non renseigné",
+                       `0` = "Non renseigné ou sans objet",
+                       `1` = "Sens véhicule heurtant (déplacement)",
+                       `2` = "Sens inverse du véhicule (déplacement)",
+                       `3` = "Traversant",
+                       `4` = "Masqué",
+                       `5` = "Jouant – courant",
+                       `6` = "Avec animal",
+                       `9` = "Autre",
+                       `A` = "Monte/descend du véhicule",
+                       `B` = "Inconnue")) |> 
+  mutate(etatp = recode(etatp,
+                       ` -1` = "Non renseigné",
+                       `1` = "Seul",
+                       `2` = "Accompagné",
+                       `3` = "En groupe")) 
+
+df2 <- dfcarac |>
+  inner_join(dflieux, by = "Num_Acc") |>           
+  inner_join(dfvehicules, by = "Num_Acc") |>      
+  inner_join(dfusagers, by = c("Num_Acc", "id_vehicule")) 
+df2 <- df2 |> mutate(age = 2024 - as.numeric(df2$an_nais)) |> 
+  mutate(age_class = case_when(
+    age >= 0 & age <= 17 ~ "Mineurs",
+    age >= 18 & age <= 25 ~ "18-25",
+    age >= 26 & age <= 38 ~ "26-38",
+    age >= 39 & age <= 55 ~ "39-55",
+    age > 55 ~ "Séniors",
+    TRUE ~ "Non renseigné"
+  ))
+
+df3 <- df2[,-c(18,19,42,52,53,54,55,56)]
+df4 <- df3[!is.na(df3$an_nais),]
+df5 <- df4[df4$voie != "N/A",]
+```
+
+\vspace{0.5cm}
+
+![](image/téléchargement.png){width=15cm}
+
+\newpage
+
+# Introduction
+
+\vspace{0.15cm}
+
+## Présentation du sujet
+
+L’objectif de cette étude sera plutôt global. Nous allons étudier **l’accidentologie en France** (en nous concentrant sur la ville de Tours). Le but est de repérer certaines **corrélations** entre les types d’individus et les accidents provoqués. Nous allons aussi essayer de voir à travers nos données si certains stéréotypes sont réellement fondés ou non (par exemple, sur la capacité de conduite en fonction du sexe).
+
+Pour ce faire, nous allons commencer par présenter nos données, les filtrer pour sélectionner celles qui nous paraissent pertinentes, afin de nous lancer dans la réalisation d’une **ACM** (Analyse des Correspondances Multiples). Nous terminerons notre étude par une **classification.**
+
+\vspace{0.3cm}
+
+## Présentation de la base de données
+
+\vspace{0.15cm}
+
+Pour la réalisation de cette étude, nous avons utilisé **4 bases de données** concernant les accidents en France en 2022, toutes liées entre elles. Nous avons tout d'abord des données sur les**caractéristiques de l’accident** (15 variables) :
+
+\vspace{0.5cm}
+
+```{r} 
+dfcarac2 |> select(1:12) |> head(n = 6) |>  kable() |>  kable_styling(position = "center")
+```
+
+
+Nous avons comme première variable **l’identifiant de l’accident**. Les 4 bases de données possèdent cette variable.
+
+Nous avons ensuite des variables sur l’adresse, le moment de l’accident, les conditions météorologiques ainsi que le lieu précis de l’accident donné grâce aux coordonnées (longitudes et latitudes), qui nous serviront par la suite.
+
+Comme on peut l’observer, les variables prennent des chiffres comme modalités ; elles correspondent toutes à une situation (dont nous avons leur signification sur le site data.gouv). Pour rendre la lecture et la compréhension de nos données **plus lisibles**, nous avons donc décidé de **transformer** les modalités afin qu’elles soient plus **explicites**.
+
+\vspace{0.5cm}
+
+```{r} 
+dfcarac |> select(1:8) |> head(n = 6) |>  kable() |>  kable_styling(position = "center")
+```
+
+\vspace{0.3cm}
+
+\newpage
+
+Voici notre deuxième base de données concernant le **lieu de l’accident** (18 variables) :
+
+\vspace{0.3cm}
+
+```{r}
+dflieux |> select(1:5) |> head(n = 6) |> kable() |>  kable_styling(position = "center")
+```
+
+\vspace{0.3cm}
+
+On peut observer ici des variables typiquement liées au lieu de l’accident. Certaines colonnes restent inutilisables car nous n’avons pas la signification de certaines variables ou bien il y a des valeurs manquantes. Nous allons donc procéder à un **nettoyage de ces données**. 
+
+Voici notre troisième base de données concernant **les usagers**, acteurs de l’accident (16 variables) :
+
+\vspace{0.3cm}
+
+```{r}
+dfusagers |> select(1:8) |> head(n = 6) |> kable() |>  kable_styling(position = "center")
+```
+
+\vspace{0.3cm}
+
+Ici, nous avons principalement des données sur le type d’usagers (année de naissance, sexe). Nous allons principalement les utiliser pour notre étude.
+
+Voici notre dernière base de données concernant les **véhicules** utilisés lors d’un accident (11 variables) : 
+
+\vspace{0.3cm}
+
+```{r}
+dfvehicules |> select(1:4) |> head(n = 6) |> kable() |>  kable_styling(position = "center")
+```
+
+\vspace{0.3cm}
+
+Nous utiliserons moins ces données, sauf pour une variable. Cependant, nous avons ici des informations sur les types de véhicules, le carburant, la manœuvre lors de l’accident, etc.
+
+\newpage
+
+Ensuite, nous avons décidé de **concaténer nos 4 bases de données** par un inner join en prenant en référence la variable ID_accident (Num_Acc) :
+
+
+\vspace{0.3cm}
+
+```{r, echo=TRUE}
+df2 <- dfcarac |>
+  inner_join(dflieux, by = "Num_Acc") |>           
+  inner_join(dfvehicules, by = "Num_Acc") |>      
+  inner_join(dfusagers, by = c("Num_Acc", "id_vehicule")) 
+```
+
+\vspace{0.3cm}
+
+Voici donc notre base de données comportant **48 variables** et **114 076 observations** avant le nettoyage des lignes avec des valeurs manquantes et des variables inutilisables :
+
+\vspace{0.3cm}
+
+```{r}
+df5 |> select(1:9) |> head(n = 4) |> kable() |>  kable_styling(position = "center")
+```
+
+Ces 114 076 observations correspondent au **nombre d’usagers** impliqués dans les accidents en 2022.
+
+## Quelques ajustements
+
+Pour notre étude, une information cruciale sur nos individus nous manque, **leur âge**.
+
+Mais nous avons repéré une variable qui va nous permettre d’obtenir l’âge de nos individus. Comme nous avons l’année de naissance de nos individus, nous allons faire **2024 – l’année de naissance** pour chacun d’eux.
+
+\vspace{0.3cm}
+
+```{r, echo=TRUE, eval=FALSE}
+mutate(age = 2024 - as.numeric(df2$an_nais))
+```
+
+\vspace{0.3cm}
+
+Par la suite, nous avons créé **5 classes d’âge** :
+
+-	**Les mineurs**
+-	**De 18 à 25 ans**, des jeunes adultes
+-	**De 26 à 38 ans**, des adultes avec un peu plus d’expérience et des responsabilités 
+-	**De à 39 à 55 ans**, des adultes avec beaucoup d’expérience
+-	**Au-dessus de 55 ans**, les séniors.
+
+\vspace{0.3cm}
+
+```{r, echo=TRUE, eval=FALSE}
+mutate(age_class = case_when(
+    age >= 0 & age <= 17 ~ "Mineurs",
+    age >= 18 & age <= 25 ~ "18-25",
+    age >= 26 & age <= 38 ~ "26-38",
+    age >= 39 & age <= 55 ~ "39-55",
+    age > 55 ~ "Séniors"))
+```
+
+\vspace{0.3cm}
+
+Voici un exemple du rendu : 
+
+\vspace{0.3cm}
+
+```{r}
+df_age <- df5[1:2, (ncol(df5)-1):ncol(df5)]
+df_age |> kable() |>  kable_styling(position = "center")
+```
+
+\newpage
+
+## Statistiques
+
+\vspace{0.3cm}
+
+Avant de commencer notre **ACM**, place à quelques petites **statistiques** intéressantes.
+
+Tout d'abord, l’une de nos bases était structurée de manière à ce que chaque ligne corresponde à un accident unique. Pour récupérer le nombre d'accidents, nous avons donc fait :
+
+\vspace{0.3cm}
+
+```{r, echo=TRUE, eval=FALSE}
+sum(nrow(dfcarac))
+```
+
+```{r}
+nb_acc <- data.frame("Nombre d'accidents en 2022" = "55 302", check.names = FALSE)
+```
+
+\vspace{0.5cm}
+
+```{r}
+kable(
+  nb_acc, 
+  format = "latex", 
+  booktabs = TRUE, 
+  align = "c"
+)
+```
+
+\vspace{0.5cm}
+
+Par la suite, nous avons trouvé intéressant de calculer le **taux de mortalité**. Nous avons pu le faire grâce à la variable **grav**, qui prenait comme modalité « tué ».
+
+\vspace{0.5cm}
+
+```{r, echo=TRUE, eval=FALSE}
+nb_morts <- sum(dfusagers$grav == "Tué")
+round((nb_morts/nrow(dfusagers)*100),2)
+```
+
+\vspace{0.3cm}
+
+```{r}
+tab_mort <- data.frame("taux de mortalité" = "2,8%", check.names = FALSE)
+```
+
+```{r}
+kable(
+  tab_mort, 
+  format = "latex", 
+  booktabs = TRUE, 
+  align = "c"
+)
+```
+
+\vspace{0.5cm}
+
+Puis, nous avons trouvé pertinent de calculer **l’âge moyen** de nos individus pour le comparer avec celui de la France, qui est de 42 ans et demi.
+
+\vspace{0.3cm}
+
+```{r, echo=TRUE, eval=FALSE}
+mean(df5$age)
+```
+
+\vspace{0.3cm}
+
+```{r}
+age_moyen <- data.frame("Âge moyen de nos individus" = "40 ans et demi", check.names = FALSE)
+```
+
+```{r}
+kable(
+  age_moyen, 
+  format = "latex", 
+  booktabs = TRUE, 
+  align = "c"
+)
+```
+
+\vspace{0.3cm}
+
+Nos données se rapprochent donc de la **réalité**.
+
+\vspace{0.3cm}
+
+Pour finir, regardons la **répartition homme/femme** de notre étude.
+
+```{r, out.width="35%"}
+df5_graph_sexe <- df5 |> 
+  count(sexe) |> 
+  mutate(pourcentage = n / sum(n) * 100)
+
+df5_graph_sexe <- df5_graph_sexe |> 
+  filter(sexe %in% c("Féminin", "Masculin"))  
+
+ggplot(df5_graph_sexe, aes(x = reorder(sexe,-n), y=n, fill = sexe)) +
+  geom_bar(stat = "identity", color = "black") +
+  geom_text(aes(label = paste0(round(pourcentage, 1), "%")),  
+            size = 8,
+            position = position_stack(vjust = 0.5)) +  
+  scale_fill_manual(name = NULL, 
+                    values = c(" -1" = "grey",
+                               "Féminin" = "pink",
+                               "Masculin" = "skyblue"),
+                    labels = c("Féminin" = "Femme",
+                               "Masculin" = "Homme"))+
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank(),           
+    axis.text = element_blank(),           
+    axis.ticks = element_blank(),          
+    axis.title = element_blank(),
+    legend.text = element_text(size = 20)
+  ) +
+  guides(fill = guide_legend(reverse = TRUE,
+         keyheight = unit(1, "cm"),  
+         keywidth = unit(1, "cm")))  
+```
+
+\vspace{0.3cm}
+
+On peut déjà observer que, statistiquement, dans cette étude, les hommes sont environ **deux fois** plus impliqués dans des accidents que les femmes, ce qui peut contredire le préjugé selon lequel les femmes conduisent moins bien que les hommes.
+
+\newpage
+
+## Décisions
+
+Maintenant, comme nous étudions à **l’université de Tours**, nous trouvons judicieux d’organiser notre **ACM** sur les accidents de Tours et **sa périphérie**.
+
+Pour ce faire, on a récupéré les données de **longitude** et de **latitude** de Tours, et on a travaillé avec les données de nos observations pour limiter notre dataframe à des observations provenant uniquement de chez nous.
+
+\vspace{0.5cm}
+
+```{r, echo=TRUE, eval = TRUE}
+lat_min <- 47
+lat_max <- 47.7
+long_min <- 0.3
+long_max <- 1.3
+
+tours_data <- df5[df5$lat>= lat_min & df5$lat <= lat_max &
+                     df5$long >= long_min & df5$long <= long_max, ]
+```
+
+\vspace{0.5cm}
+
+```{r}
+tours_data <-select(tours_data, c(29,30,37,43,44,45,47,50))
+```
+
+
+\vspace{0.3cm}
+
+![Périmètre de l'étude](image/carte.png){width=35%}
+
+\vspace{0.3cm}
+
+Au minimum nous avons **943 observations** (si l'on réduit le périmètre, on ne capte plus aucune observation).
+
+\newpage
+
+# ACM
+
+## Mise en place de l'ACM
+
+Tout d’abord, nous avons dû faire un choix de variables pour une **ACM claire** qui nous donne des informations **pertinentes**.
+
+Nous sommes donc partis sur des variables qui identifient le **type d’individu**, ainsi que quelques **caractéristiques de l’accident**.
+
+\vspace{0.3cm}
+
+### Variables prises
+
+On a sélectionné :  
+
+- la variable **choc** qui nous dit de quel côté a eu le choc qui a causé l'accident
+\vspace{0.1cm}
+- la variable **grav** qui nous dit la gravité de l'état de santé de l'individu (blessé, indemne, tué)
+\vspace{0.1cm}
+- la variable **catu** qui nous donne l'information sur la place de l'individu au moment de l'accident (conducteur, passager, piéton)
+\vspace{0.1cm}
+- la variable **sexe** qui nous dit si l'individu était une femme ou un homme
+\vspace{0.1cm}
+- la variable **age_class** que l'on a créée pour avoir l'information de l'âge de l'individu au moment de l'accident
+
+### Variables supplémentaires
+
+- la variable **vma** qui nous donne la vitesse maximale autorisée au moment de l'accident
+\vspace{0.1cm}
+- la variable **trajet** qui nous donne le type de sortie de l'individu 
+\vspace{0.1cm}
+- la variable **situ**, qui nous donne la situation de l'accident (sur un trottoir, la chaussée, etc). On aurait pu logiquement mettre cette variable dans notre ACM, c'est ce que nous avons fait au départ, mais nous avions eu des résultats peu convaincants, c'est pourquoi nous l'avons mise en supplémentaire pour garder l'information.
+
+\vspace{0.5cm}
+
+```{r, echo=TRUE, eval = TRUE}
+resMCA<-MCA(tours_data, quali.sup = c(1,2,7), graph=FALSE)
+```
+
+\vspace{0.3cm}
+
+## Étude de l'inertie
+
+\vspace{0.3cm}
+
+```{r}
+tabvp<- resMCA$eig |> round(2) 
+colnames(tabvp) <- c("Valeur propre", "Part d'inertie", "Part cumulée")
+head(tabvp, 8) |> kable() |> kable_styling()
+```
+
+\vspace{0.3cm}
+
+Il serait intéressant de regarder jusqu'à la **4ème dimension**, qui explique **37,84 %** de la variance, mais nous nous concentrerons principalement sur les **deux premiers axes** pour notre étude.
+
+\newpage
+
+```{r}
+fviz_eig(resMCA, main = "Inerties relatives de chaque axe", xlab= "Axes factoriels", ylab = "Parts",
+         barfill = "lightblue",
+         barcolor = "black",
+         linecolor = "blue",)+
+  theme(panel.grid = element_blank(),             
+    panel.background = element_blank())
+```
+
+\vspace{0.3cm}
+
+Nous voyons ici qu'il serait en réalité intéressant de regarder jusqu'au **3ème axe**, car au-delà, l'inertie cumulée décroît de moins en moins.
+
+\vspace{0.3cm}
+
+```{r}
+tabvar <- resMCA$var$contrib[,1:2] |> round(2)
+colnames(tabvar) <- c("Dim 1","Dim 2")
+
+tabvar |> 
+  kable() |> 
+  kable_styling() |> 
+  column_spec(2, color = ifelse(tabvar[,1] > 10, "red", "black")) |> 
+  column_spec(3, color = ifelse(tabvar[,2] > 10, "red", "black"))
+```
+
+
+\newpage
+
+### Dimension 1
+
+Cet axe est principalement construit par les modalités **"Conducteur/Passager"**, mais aussi par les modalités **"Masculin/Féminin"** ainsi que **"Mineurs"**.
+
+
+### Dimension 2
+
+Cet axe est plutôt construit par les modalités **"Arrière"**, **"Blessé hospitalisé"**, **"Indemne"**, **"Chocs multiples"** (tonneaux) et **"Piéton"**.
+
+### Interprétation
+
+\vspace{0.3cm}
+
+Nous comprenons donc que l'axe 1 est en partie construit par **l'identité de l'individu** au moment de l'accident, c'est-à-dire son sexe et sa place lors de l'accident.
+
+En revanche, l'axe 2 est plutôt construit par **les caractéristiques de l'accident**, telles que le type de choc et la gravité de l'accident (état des individus). Cependant, on retrouve la variable Piéton. On peut se demander pourquoi cette variable n'apparaît pas dans la construction de l'axe 1. Piéton contribue à l'axe 2 sans doute parce que cet axe capture les caractéristiques de l'accident, telles que la gravité des blessures, qui varient de manière significative pour les piétons par rapport aux conducteurs et passagers.
+
+\vspace{0.3cm}
+
+### Tableau des contributions 
+
+\vspace{0.3cm}
+
+```{r}
+fviz_contrib(resMCA, choice = "var", axes = 1, fill = "lightblue", color = "black") +
+  theme(panel.grid = element_blank(),             
+    panel.background = element_blank(),
+    axis.title.y = element_blank(),
+    axis.text.x = element_text(angle = 90))+
+  ggtitle("Axe 1") +
+  fviz_contrib(resMCA, choice = "var", axes = 2, fill = "lightblue", color = "black") +
+  theme(panel.grid = element_blank(),             
+    panel.background = element_blank(),
+    axis.title.y = element_blank(),
+    axis.text.x = element_text(angle = 90))+
+  ggtitle("Axe 2")
+```
+
+\vspace{0.5cm}
+
+Ces tableaux viennent confirmer notre interprétation.
+
+\newpage
+
+## Réalisation de l'ACM
+
+\vspace{0.3cm}
+
+```{r}
+plot.MCA(resMCA,invisible= c('ind','quali.sup'),col.var=c(1,1,1,1,1,2,2,2,3,3,3,3,4,4,5,5,5,5,5),col.quali.sup=c(6,6,6,6,6,6,6,7,7,7,7,7,7,7,7,7,7,8,8,8,8,8,8,8),label =c('var'),xlim=c(-1.5, 3.5), ylim=c(-2,3))
+```
+
+
+\vspace{0.3cm}
+
+### Dimension 1 
+
+\vspace{0.3cm}
+
+Comme nous l'avons remarqué auparavant, cette dimension semble être liée à **l'identité de l'individu** et à sa **position** au moment de l'accident.
+
+- À gauche, nous trouvons les modalités **"Conducteur"** et **"Masculin"**. Cela signifie que cette partie de l'axe est associée aux conducteurs, souvent des hommes adultes.
+
+- À droite, nous trouvons les modalités **"Passager"**, **"Mineurs"** et **"Féminin"**, ce qui pourrait indiquer une association avec les passagers plutôt jeunes ou féminins.
+
+### Dimension 2
+
+\vspace{0.3cm}
+
+Cet axe là reflète plutôt les **caractéristiques** liées à la **gravité des accidents**.
+
+- En haut, nous retrouvons les modalités **"Blessé hospitalisé"**, **"Tué"**, **"Piéton"** et **"Chocs multiples (tonneaux)"**. Cela semble traduire une gravité élevée des accidents concernant les piétons et les accidents impliquant des tonneaux (chocs multiples).
+
+- En bas, nous retrouvons des modalités comme **"Indemne"** et **"Arrière"**, traduisant des accidents moins graves. Les chocs à l'arrière d'un véhicule sont souvent moins impressionnants que ceux sur les côtés.
+
+
+\newpage
+
+### En haut à droite
+
+\vspace{0.3cm}
+
+Cette zone est marquée par les modalités **"Piéton"** et **"Blessé hospitalisé"**, indiquant une association entre les piétons et les accidents graves.
+
+### En bas à droite
+
+\vspace{0.3cm}
+
+Nous retrouvons ici un regroupement des modalités **"Passager"**, **"Mineurs"** et **"Arrière"**, ce qui montre que les passagers, souvent jeunes, sont moins exposés à des chocs graves.
+
+### En haut à gauche
+
+\vspace{0.3cm}
+
+Cette zone est associée aux accidents graves impliquant probablement des conducteurs, car nous retrouvons les modalités **"Tué"**, **"Blessé hospitalisé"** et **"Chocs multiples"**.
+
+### En bas à gauche
+
+\vspace{0.3cm}
+
+On trouve des modalités telles que **"Conducteur"**, **"Masculin"**, **"Indemne"** et les classes d'âge **"26-38"** et **"39-55"**. Cela pourrait indiquer que les conducteurs adultes masculins sont souvent indemnes ou moins touchés par des chocs graves (probablement car ils ont des responsabilités, de l'expérience et ils sont plus prudents).
+
+\vspace{0.7cm}
+
+## Points importants de cette ACM
+
+\vspace{0.3cm}
+
+- **L'axe 1** oppose principalement les conducteurs masculins adultes aux passagers, notamment jeunes ou féminins.
+
+- **L'axe 2** met en opposition les caractéristiques de gravité des accidents : en haut les accidents graves (blessures, décès, piétons), en bas les accidents moins graves (indemnes).
+
+- La modalité **"Piéton"** contribue fortement à **l'axe 2**, probablement en raison de la gravité des blessures spécifiques aux piétons.
+
+\vspace{0.3cm}
+
+Notre analyse nous permet ainsi de mieux comprendre la **répartition des individus** en fonction des **caractéristiques** des accidents.
+
+\newpage
+
+## Variables supplémentaires 
+
+Notre analyse des **variables supplémentaires** s’est principalement concentrée sur leur positionnement par rapport aux axes et sur les **informations complémentaires** qu’elles pouvaient apporter à nos variables principales.
+
+\vspace{0.3cm}
+
+```{r,out.width="50%", out.height="50%", fig.show='hold', warning = FALSE}
+plot.MCA(resMCA,
+         invisible='ind', 
+         col.var=c(1,1,1,1,1,2,2,2,3,3,3,3,4,4,5,5,5,5,5),
+         col.quali.sup=c(6, 6, 6, 6, 6, 6, 6, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA),  
+         label=c('var', 'quali.sup'),
+         xlim=c(-1.5, 3.5), ylim=c(-2, 3))
+
+plot.MCA(resMCA,
+         invisible='ind', 
+         col.var=c(1,1,1,1,1,2,2,2,3,3,3,3,4,4,5,5,5,5,5),
+         col.quali.sup=c(NA, NA, NA, NA, NA, NA, NA, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, NA, NA, NA, NA, NA, NA, NA),  
+         label=c('var', 'quali.sup'),
+         xlim=c(-1.5, 3.5), ylim=c(-2, 3))
+```
+
+### situ
+
+- Les modalités supplémentaires **"Sur accotement"**, **"Sur autre voie spéciale"**, et **"Sur trottoir"** renforcent l'interprétation précédente selon laquelle **l'axe 2** est associé à la gravité des accidents. Leur présence dans les zones impliquant des piétons et des blessures graves montre que les accidents en dehors des voies principales ou sur des trottoirs sont particulièrement dangereux pour les piétons.
+
+\vspace{0.2cm}
+
+### vma
+
+Les valeurs 5, 15, 70, 110, 130 représentent la **vitesse maximale autorisée** (en km/h) au moment de l'accident.
+
+- **VMA = 5**, située en bas près de l'axe central, correspond à des accidents survenus à très faible vitesse, comme en zone de rencontre. Cette faible vitesse est logiquement associée à la modalité « Indemne », car les chances de sortir sans blessures dans ce type de situations sont très élevées.
+
+- **VMA = 70**, Les routes à 70 km/h, souvent secondaires, sont associées à des accidents frontaux impliquant des conducteurs masculins adultes (26-38 ans), ce qui pourrait refléter des comportements de conduite plus risqués.
+
+- **VMA = 110**, positionnées en haut à gauche proches des modalités « Blessé hospitalisé » et
+« Tué ». Cela indique que des accidents à des vitesses élevées sont fortement associés à des conséquences graves, comme des blessures sévères ou des décès.
+
+- **VMA = 130**, bien que l'on pourrait s'attendre à la voir proche des modalités « Blessé hospitalisé » et « Tué », cela peut s'expliquer par des facteurs tels que la sécurité accrue et la meilleure visibilité sur autoroute, réduisant la fréquence des accidents graves. Ce qui est intéressant, c'est sa proximité avec la modalité « Aucun », suggérant que ces accidents pourraient être liés à un problème technique du véhicule ou une perte de contrôle plutôt qu'à un choc violent.
+
+\newpage
+
+### trajet
+
+\vspace{0.3cm}
+
+```{r, out.width="50%", out.height="50%", warning = FALSE}
+plot.MCA(resMCA,
+         invisible='ind', 
+         col.var=c(1,1,1,1,1,2,2,2,3,3,3,3,4,4,5,5,5,5,5),
+         col.quali.sup=c(NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, 8, 8, 8, 8, 8, 8, 8),  
+         label=c('var', 'quali.sup'),
+         xlim=c(-1.5, 3.5), ylim=c(-2, 3))
+```
+
+\vspace{0.8cm}
+
+- **Domicile-école** : sa position centrale sur la carte factorielle montre qu'elle n'est pas fortement associée à des conséquences graves ou à un type d'accident particulier. Cela signifie que les accidents ayant lieu lors de **trajets domicile-école** sont souvent **dispersés** dans toutes les situations : ils peuvent être bénins ou graves, sans tendance marquée. Ce type de trajet concerne souvent des **déplacements courts**, souvent en zone urbaine, ce qui peut expliquer l’absence de spécificité.
+
+\vspace{0.5cm}
+
+- **Utilisation professionnelle** : cette modalité est proche des modalités qui décrivent une personne en âge moyen de travail comme on peut le voir avec les modalités « Conducteur », 26-38 » et « 39-55 », en raison d’un **trajets régulier** et **maitrisé** du fait que le chemin emprunté doit être le même on va retrouver une absence en générale d’accident grave. Des blessures légères plutôt que des conséquences graves dont la raison qu’on y retrouve la modalité **« Indemne »**.
+
+\vspace{0.5cm}
+
+- **Courses-achats** : cette modalité se situe à proximité des modalités telles que **"Blessé léger"** et **"Séniors"**, ce qui suggère que les accidents survenant lors de trajets pour courses et achats sont souvent moins graves dû à l’utilisation courte du véhicule, souvent en zone urbaine et non loin de « Séniors » du fait que la personne arrivée à cette âge-là non **plus grand-chose à faire** et vont se retrouver régulièrement à utiliser leur véhicule pour leur course.
+
+\newpage
+
+# Classification 
+
+```{r, echo=TRUE, eval=FALSE}
+mca.clus <- HCPC(resMCA, graph = FALSE, consol = TRUE)
+```
+
+```{r}
+mca.clus <- HCPC(resMCA, graph = FALSE, consol = TRUE, nb.clust = 6)
+```
+
+
+Pour notre **classification**, regardons le graphique de gain **d’inertie inter-groupe** afin de déterminer le nombre de cluster optimal pour notre étude :
+
+```{r}
+plot(mca.clus, choice = "bar")
+```
+
+D'après le graphique, nous pourrions envisager **7 à 8 clusters**, car le gain d'inertie inter-groupe devient faible au-delà. Cependant, après plusieurs essais, les résultats étaient plus pertinents avec **6 clusters**. Nous avons donc choisi cette option.
+
+Nous avons identifié **3 clusters** particulièrement intéressants :
+
+## Groupe 1 
+
+```{r}
+mca.clus$desc.var$category$'1' |> as.data.frame() |> slice(c(1, 2, 3, 4, 5, 6, 7, 8)) |> round(2) |> kable() |> kable_styling()|> column_spec(1,background = "black",color = "white",bold = T)
+```
+
+- Environ **2 tiers** des individus de **26 à 55 ans** se retrouvent dans ce groupe, et **95%** des individus de ce groupe sont des conducteurs. 
+
+- De plus, **45%** des individus indemnes après un accident sont aussi dans ce cluster (environ la moitié).
+
+- **57%** des individus qui ont un accident lors de trajets professionnels se retrouvent aussi dans ce cluster.
+
+- Pour finir, nous retrouvons les accidents provoqués par des chocs à l'avant ou à l'arrière (qui se retrouvent en grande partie dans ce cluster).
+
+\vspace{0.3cm}
+
+Le **groupe 1** est donc composé principalement de conducteurs adultes âgés entre **26 et 55 ans**, engagés dans des trajets professionnels ou domicile-travail. Les accidents sont peu graves, avec une majorité d'individus indemnes après l'accident. Les types de chocs avant et arrière sont les plus fréquents, ce qui pourrait être lié à des contextes de **trafic professionnel ou d'embouteillages** (fréquent dans les trajets domicile-travail).
+
+Ce groupe représente probablement des accidents de la vie courante, impliquant des conducteurs réguliers dans des situations de routine.
+
+## Groupe 2
+
+```{r}
+mca.clus$desc.var$category$'2' |> as.data.frame() |> slice(c(1, 2, 3, 5, 7)) |>  round(2) |> kable() |> kable_styling() |> column_spec(1,background = "black",color = "white",bold = T)
+```
+
+\vspace{0.3cm}
+
+- **74%** des seniors se retrouve dans ce groupe et **83%** des individus de ce groupe sont des seniors 
+
+- **95%** des individus de ce groupe sont des conducteurs
+
+- **81%** des individus tués se retrouvent dans ce groupe mais peu d'individus de ce groupe sont réellement tués (12%), car cette modalité est plutôt rare. On retrouve une petite part aussi des individus blessés hospitalisés.
+
+- **42%** des individus qui ont subit un accident sur leur trajet pour aller faire des courses se retrouvent dans ce groupe.
+
+\vspace{0.3cm}
+
+Ce groupe est fortement associé aux **seniors**, qui représentent une part très importante des individus. Les accidents dans ce groupe sont particulièrement graves, avec une **forte sur-représentation des décès** (tués) et des blessures hospitalisées. Cela suggère que lorsqu'un accident implique un senior, il est souvent plus grave en termes de conséquences.
+
+Les trajets typiques dans ce groupe sont liés aux **courses et achats**, ce qui pourrait indiquer que ces accidents se produisent dans des contextes de déplacement de **proximité**, typiques des seniors.
+
+## Groupe 3
+
+```{r}
+mca.clus$desc.var$category$'6' |> as.data.frame() |> slice(c(1, 2, 3, 4, 5, 6, 7, 11)) |>  round(2) |> kable() |> kable_styling() |> column_spec(1,background = "black",color = "white",bold = T)
+```
+
+\vspace{0.3cm}
+
+- **2 tiers** des individus qui sont passagers lors d'un accident se retrouvent dans ce groupe, et **93%** des individus de ce groupe sont des passagers.
+
+- De plus, **72%** des mineurs sont dans ce groupe et environ 30% des femmes aussi (cependant, environ **70%** des individus de ce cluster sont des femmes).
+
+- Nous pouvons aussi observer que **43%** des accidents sur autoroute se retrouvent dans ce groupe.
+
+- Nous retrouvons les modalités, **"Blessé léger"**, **"choc avant"** et **"choc arrière"**.
+
+\vspace{0.3cm}
+
+Nous pouvons donc en déduire que ce groupe est constitué de passgers **mineurs**, avec une **sur-représentation des femmes**. Les accidents surviennent souvent :
+
+\vspace{0.3cm}
+
+- Lors de trajets de loisirs ou de promenades,
+
+- Sur des autoroutes (VMA 130 km/h), ce qui peut s’expliquer par des **trajets familiaux longs.**
+Les chocs arrières sont caractéristiques dans ce groupe, ce qui peut indiquer une conduite en file ou un contexte de ralentissement, typique des **autoroutes**. Les accidents dans ce groupe ont une gravité relativement modérée, avec une proportion notable de blessés légers.
+
+# Conclusion
+
+L’objectif de notre étude était de mieux comprendre **l’accidentologie en France**, en particulier dans la région de Tours, tout en cherchant à vérifier si certains stéréotypes liés à la conduite sont fondés ou non. À travers l’analyse des données et la réalisation d’une **ACM** (Analyse des Correspondances Multiples) suivie d’une **classification**, nous avons pu identifier des **corrélations significatives** entre les caractéristiques des individus et les accidents dans lesquels ils sont impliqués.
+
+Nos principaux résultats sont les suivants :
+
+- Les stéréotypes concernant les femmes au volant sont **infondés** : Contrairement aux idées reçues, ce sont les hommes qui sont plus souvent impliqués dans des accidents, qu’ils soient conducteurs ou victimes.
+
+- Le stéréotype des "personnes âgées" impliquées dans des accidents est **partiellement confirmé** : Les individus âgés sont en effet sur-représentés dans certains types d’accidents, et les conséquences pour ces derniers tendent à être plus graves (hospitalisations, décès).
+
+- La répartition des rôles **"hommes conducteurs"** et **"femmes passagères"** est **avérée** : Les données montrent une présence marquée des hommes au volant tandis que les femmes apparaissent plus fréquemment en tant que passagères, notamment dans des contextes familiaux ou de trajets de loisirs.
+
+En outre, nous avons relevé que :
+
+- Les accidents graves (hospitalisations et décès) surviennent souvent chez des groupes bien identifiés comme les **seniors** ou lors de trajets à haute vitesse.
+
+- Les **mineurs** sont sur-représentés dans des accidents impliquant des **passagers**, souvent sur des trajets de loisirs.
+
+## Perspectives
+
+Cette étude a permis de mettre en lumière certaines dynamiques importantes de l’accidentologie. Elle ouvre également la voie à des réflexions sur les politiques de **sécurité routière**, en insistant sur des populations plus vulnérables comme les **seniors** et les **mineurs**. 
+
+
