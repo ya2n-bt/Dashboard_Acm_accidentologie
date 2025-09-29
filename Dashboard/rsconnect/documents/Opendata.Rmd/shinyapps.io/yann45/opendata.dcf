@@ -1,0 +1,10 @@
+name: opendata
+title:
+username: yann45
+account: yann45
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 13720155
+bundleId: 9648988
+url: https://yann45.shinyapps.io/opendata/
+version: 1

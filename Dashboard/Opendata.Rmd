@@ -1,0 +1,516 @@
+---
+title: "Accidentologie en France"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    logo: "image/logo.png"
+    css: CSS/styles.css
+runtime: shiny
+  
+---
+
+```{r Packages, warning=FALSE, message=FALSE}
+library(bit64)
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(plotly)
+library(shiny)
+library(flexdashboard)
+library(sf)
+library(ggridges)
+library(forcats)
+library(ggrepel)
+```
+
+```{r Importation des données, warning=FALSE}
+dfcarac <- fread("Data/carcteristiques-2022.csv")
+dfcarac <- dfcarac |>  rename(Num_Acc = Accident_Id)
+
+dflieux <- fread("Data/lieux-2022.csv")
+dfvehicules <- fread("Data/vehicules-2022.csv")
+
+dfusagers <- fread("Data/usagers-2022.csv")
+dfusagers_avec_dep <- dfusagers |> 
+  left_join(dfcarac |> select(Num_Acc, dep), by = "Num_Acc")
+
+df <- dfcarac |> inner_join(dflieux, by = "Num_Acc")
+df <- df |> inner_join(dfvehicules, by = "Num_Acc")
+df <- df |> inner_join(dfusagers, by = "Num_Acc")
+```
+
+```{r Création de dataframe et modification, include = FALSE}
+dfsexe <- df |>
+  mutate(sexe = as.character(sexe)) |> 
+  mutate(sexe = case_when(
+    sexe == "1" ~ "Homme",
+    sexe == "2" ~ "Femme",
+    sexe == "-1" ~ "Inconnu",
+    TRUE ~ sexe)) |> 
+  group_by(sexe) |> 
+  summarise(count = n()) |> 
+  mutate(percentage = count / sum(count) * 100)
+
+dfusagers <- dfusagers |> 
+  mutate(
+    trajet = case_when(
+      trajet == "-1" ~ "Non renseigné",
+      trajet == 0 ~ "Non renseigné",
+      trajet == 1 ~ "Travail",
+      trajet == 2 ~ "École",
+      trajet == 3 ~ "Courses",
+      trajet == 4 ~ "Professionnelle",
+      trajet == 5 ~ "Promenade",
+      trajet == 9 ~ "Autres",
+      TRUE ~ as.character(trajet)))|>
+  mutate(age = 2024 - as.numeric(an_nais)) |> 
+  mutate(grav = case_when(
+      grav == 1 ~ "Indemne",
+      grav == 2 ~ "Tué",
+      grav == 3 ~ "Blessé hospitalisé",
+      grav == 4 ~ "Blessé léger",
+      TRUE ~ as.character(grav)
+  ))
+
+dfusagers_avec_dep <- dfusagers_avec_dep |> 
+      mutate(age = 2024 - as.numeric(an_nais)) |> 
+      mutate(grav = case_when(
+      grav == 1 ~ "Indemne",
+      grav == 2 ~ "Tué",
+      grav == 3 ~ "Blessé hospitalisé",
+      grav == 4 ~ "Blessé léger",
+      TRUE ~ as.character(grav)
+  ))
+
+dflieux <- dflieux |> 
+  mutate(
+    catr = case_when(
+      catr == 1 ~ "Autoroute",
+      catr == 2 ~ "Route nationale",
+      catr == 3 ~ "Route départementale",
+      catr == 4 ~ "Voie Communale",
+      catr == 5 ~ "Hors réseau public",
+      catr == 6 ~ "Parc de stationnement",
+      catr == 7 ~ "Route de métropole urbaine",
+      catr == 9 ~ "Autre",
+      TRUE ~ as.character(catr))) |> 
+  mutate(catr = fct_inorder(as.factor(catr)))
+
+par_route <- dflieux |> 
+  group_by(catr) |>
+  summarise(nb_acc = n()) |> 
+  filter(catr != "Hors réseau public") |> 
+  mutate(nb_acc = as.numeric(nb_acc)) |> 
+  mutate(catr = fct_reorder(catr, nb_acc, .desc = TRUE))
+
+
+dftraj <- as.data.frame(table(dfusagers$trajet))
+dftraj <- dftraj[dftraj$Var1 != "Non renseigné",]
+dftraj <- dftraj[-c(1,2),]
+dftraj$frequency <- (dftraj$Freq/sum(dftraj$Freq))*100 
+dftraj <- dftraj[order(dftraj$frequency, decreasing = TRUE), ]
+dftraj <- dftraj |> 
+  mutate(Var1 = fct_reorder(Var1, frequency),
+         percentage = round(frequency / sum(frequency) * 100, 1), 
+         ypos = cumsum(frequency) - 0.5 * frequency)  
+
+dep <- st_read("https://raw.githubusercontent.com/gregoiredavid/france-geojson/master/departements.geojson")
+```
+
+```{r Variables}
+nb_acc <- sum(nrow(dfcarac))
+nb_morts <- sum(dfusagers$grav == "Tué")
+nb_grave <- sum(dfusagers$grav == "Blessé hospitalisé")
+taux_mortalite <- round((nb_morts/nrow(dfusagers)*100),2)
+palette_violet <- colorRampPalette(c("#A2C2E6", "#A1A1D1", "#A78BCA"))(5)
+```
+
+```{r Variables réactive/dataframe réactive,}
+codedep <- reactiveVal(NULL) 
+dep_i <- reactiveVal(NULL)
+nb_mort_reac <- reactive({
+  nrow(dfusagers_reac() |> filter(grav == "Tué"))  
+})
+
+dfusagersnobug <-  reactive({
+  dfusagers_avec_dep[dfusagers_avec_dep$dep == codedep()] |> na.omit() |> 
+    mutate(grav = factor(grav, levels = c("Indemne", "Blessé léger", "Blessé hospitalisé", "Tué"))) 
+  })
+
+dfusagers_avec_dep$grav <- dfusagers_avec_dep$grav |> as.factor()
+levels(dfusagers_avec_dep$grav)[1] <- NA
+
+dfusagers_avec_dep <- dfusagers_avec_dep |> 
+      mutate(age = 2024 - as.numeric(an_nais)) |> 
+      mutate(grav = case_when(
+      grav == 1 ~ "Indemne",
+      grav == 2 ~ "Tué",
+      grav == 3 ~ "Blessé hospitalisé",
+      grav == 4 ~ "Blessé léger",
+      TRUE ~ as.character(grav)
+  ))
+
+dfusagers_reac <- reactive({
+  dfusagers_avec_dep[dfusagers_avec_dep$dep == codedep(),] |> 
+  mutate(
+    trajet = case_when(
+      trajet == "-1" ~ "Non renseigné",
+      trajet == 0 ~ "Non renseigné",
+      trajet == 1 ~ "Travail",
+      trajet == 2 ~ "École",
+      trajet == 3 ~ "Courses",
+      trajet == 4 ~ "Professionnelle",
+      trajet == 5 ~ "Promenade",
+      trajet == 9 ~ "Autres",
+      TRUE ~ as.character(trajet))) |> 
+      mutate(age = 2024 - as.numeric(an_nais)) |> 
+      mutate(grav = case_when(
+      grav == 1 ~ "Indemne",
+      grav == 2 ~ "Tué",
+      grav == 3 ~ "Blessé hospitalisé",
+      grav == 4 ~ "Blessé léger",
+      TRUE ~ as.character(grav)
+  ))
+})
+
+dftraj_reac <- reactive({
+  freq <- as.data.frame(table(dfusagers_reac()$trajet))
+  freq <- freq[freq$Var1 != "Non renseigné",]
+  freq <- freq[-c(1,2),]
+  freq$frequence <- (freq$Freq / sum(freq$Freq)) * 100
+  freq <-freq[order(freq$frequence, decreasing = TRUE), ]
+  freq <- freq |>  mutate(Var1 = fct_reorder(Var1, frequence),
+                  percentage = round(frequence / sum(frequence) * 100, 1), 
+                  ypos = cumsum(frequence) - 0.5 * frequence)  
+  
+  return(freq)  
+})
+```
+
+```{r Application}
+
+ui <- fluidPage(
+  plotOutput("map", click = "plot_click"),
+  valueBoxOutput("infoBox")
+)
+  
+server <- function(input, output, session) {
+  
+  output$infoBox <- renderValueBox({
+    if (is.null(codedep())) {
+      valueBox(value = " ")
+               
+    }else{
+      dep_nom <- dep$nom[which(dep$code == codedep())]
+      valueBox(value = paste("Département sélectionné :", dep_nom),
+             )}
+    })
+
+  observeEvent(input$plot_click, {
+    click <- input$plot_click
+    point <- st_as_sf(data.frame(x = click$x, y = click$y), coords = c("x", "y"), crs = st_crs(dep))
+    
+    intersection <- st_intersects(dep, point, sparse = FALSE)
+    if (any(intersection)) {
+      selectionne <- which(intersection)
+      dep_i(selectionne) 
+      
+      dep_code <- dep$code[selectionne]  
+      codedep(dep_code)
+    }
+  })
+
+  
+  output$map <- renderPlot({
+    fill_colors <- rep("#E4D8E9", nrow(dep)) 
+    if (!is.null(dep_i())) {
+      fill_colors[dep_i()] <- "#A78BCA" 
+    }
+    
+    ggplot(dep) +
+      geom_sf(aes(fill = fill_colors), color = "black") +
+      scale_fill_identity() + 
+      theme_void() 
+  })
+}
+```
+
+# Général 
+
+## Value Box
+
+### **Nombre d'accident en 2022**
+
+```{r ValueBox 1}
+valueBox(value = format(nb_acc, big.mark = " "),
+         icon = "fa-solid fa-car-burst",
+         color = "primary")
+```
+
+### **Nombre d'hospitalisés**
+
+```{r ValueBox 2}
+valueBox(value = format(nb_grave, big.mark = " "),
+         icon = "fa-regular fa-hospital",
+         color = "primary")
+```
+
+### **Taux de mortalité**
+
+```{r ValueBox 3}
+valueBox(value = paste0(taux_mortalite, "%"),
+         icon = "fa-solid fa-skull-crossbones",
+         color = "primary")
+```
+
+## Graphiques   
+
+### **Nombre d'accidents par type de route** 
+
+```{r Graphique}
+ggplotly(
+  ggplot(par_route, aes(x = catr, y = nb_acc, fill = nb_acc)) + 
+  geom_bar(stat = "identity", width = 0.5, color = "black") +
+  scale_fill_gradient(low = "#A2C2E6", high = "#A78BCA") +
+  labs(x = "Type de route", y = "Nombre d'accidents") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(size = 10, angle = 45, hjust = 1),
+        axis.text.y = element_text(size = 10),
+        panel.grid = element_blank(),
+        axis.title.x = element_blank(),       
+        axis.title.y = element_blank(),
+        legend.position = "none") 
+)
+```
+
+```{r}
+ggplotly(ggplot(dfsexe[-1,], aes(x = sexe, y = count, fill = sexe)) +
+           geom_bar(stat = "identity", width = 0.6, color = "black", size = 0.5,show.legend = FALSE) +
+           labs(x = "", y = "") +
+           scale_fill_manual(values = c("Homme" = "#6BA3E8", "Femme" = "pink", "Inconnu" = "green"),guide = guide_legend(title = NULL)) +
+           
+           theme_minimal() +
+           theme(
+             plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+             axis.title.x = element_text(size = 12),
+             axis.title.y = element_text(size = 12),
+             panel.grid.major = element_blank(),
+             panel.grid.minor = element_blank(),
+             axis.text.y = element_blank(),
+             axis.ticks.y = element_blank(),
+             axis.ticks.x = element_blank(),
+             axis.text.x = element_text(face = "bold", size = 12),
+             legend.position = "none") +
+           
+           geom_text(aes(label = paste0(round(percentage, 1), "%"), y = count + max(count) * 0.02),vjust = 0)) |> 
+  layout(legend = list(x = 1, y = 0.5, yanchor = "middle"),
+         annotations = list(
+           text = "<i>Les pourcentages manquants sont les données non renseignées</i>",
+           x = 1,  
+           y = 173000,  
+           showarrow = FALSE,  
+           font = list(size = 8)  
+         ))
+```
+
+
+
+### **Type de trajet par accident**
+
+```{r Camembert}
+ggplot(dftraj, aes(x = "", y = frequency, fill = Var1)) +
+  geom_bar(stat = "identity", width = 1, color = "black") +
+  coord_polar("y", start = 0) +
+  theme_void() +
+  theme(legend.position = "none") +
+  
+  scale_fill_manual(
+    values = palette_violet
+  ) + geom_text_repel(
+    aes(label = paste0(Var1, ": ", percentage, "%"), y = ypos),
+    nudge_x = 1.5,
+    nudge_y = -1,
+    size = 3.5,
+    segment.color = "#FFBF00",
+    segment.size = 0.7,
+    family = "Comic Sans MS"
+  )
+```
+
+# Carte
+
+## Value Box 
+
+### **Nombre d'accident en 2022** 
+
+```{r ValueBox reac1}
+renderValueBox({
+  if (is.null(codedep())) {
+    valueBox(value = 0,
+             icon = "fa-solid fa-car-burst",
+             color = "primary")
+  } else {
+    valueBox(value = format(nrow(filter(dfcarac, dep == codedep())), big.mark = " "),
+             icon = "fa-solid fa-car-burst",
+             color = "primary")
+  }
+})
+```
+
+### **Nombre d'hospitalisés**
+
+```{r ValueBox reac2}
+renderValueBox({
+  if (is.null(codedep())) {
+    valueBox(value = 0,
+             icon = "fa-regular fa-hospital",
+             color = "primary")
+  } else {
+    valueBox(value = nrow(filter(dfusagers_avec_dep[dfusagers_avec_dep$grav=="Blessé hospitalisé"], dep == codedep())),
+             icon = "fa-regular fa-hospital",
+             color = "primary")
+  }
+})
+```
+
+### **Taux de mortalité**
+
+```{r ValueBox reac3}
+renderGauge({
+  if (is.null(codedep())) {
+    gauge(
+      value = 0, min = 0, max = 100, symbol = '%',gaugeSectors(
+        success = c(8, 15), 
+        warning = c(4, 8), 
+        danger = c(0, 4),
+        colors = c("#4B2C7A","#7A4B9B","#C0A0D7")
+        
+      )
+    )
+  } else {
+    value <- (nb_mort_reac() / nrow(dfusagers_reac())) * 100
+    gauge(
+      value = value, min = 0, max = 15, symbol = '%', gaugeSectors(
+        success = c(8, 15), 
+        warning = c(4, 8), 
+        danger = c(0, 4),
+        colors = c("#4B2C7A","#7A4B9B","#C0A0D7")
+      )
+    )
+  }
+})
+```
+
+## Carte + graphiques
+
+### **Sélectionnez le département**
+
+```{r Carte}
+shinyApp(ui = ui, server = server)
+```
+
+### **Type de trajet par accident**
+
+```{r Camembert reac}
+renderPlot({
+  if (is.null(codedep()))
+    return()
+
+ggplot(dftraj_reac(), aes(x = "", y = frequence, fill = Var1)) +
+  geom_bar(stat = "identity", width = 1, color = "black") +
+  coord_polar("y", start = 0) +
+  theme_void() +
+  theme(legend.position = "none") +
+  
+  scale_fill_manual(
+    values = palette_violet
+  ) + geom_text_repel(
+    aes(label = paste0(Var1, ": ", percentage, "%"), y = ypos),
+    nudge_x = 1.5,
+    nudge_y = -1,
+    size = 4,
+    segment.color = "#FFBF00",
+    segment.size = 0.7,
+    family = "Comic Sans MS"
+  )
+})
+```
+
+### **Part de la gravité de l'accident en fonction de l'âge**
+
+```{r Graphique reac}
+renderPlot({
+  if (is.null(codedep()))
+    return()
+  ggplot(dfusagersnobug(), aes(x = age, y = as.factor(grav), fill = as.factor(grav))) +
+  geom_density_ridges(alpha = 0.6, scale = 1) + 
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.title.x = element_blank(),
+    axis.text.x = element_text(size = 12),
+    legend.text = element_text(size = 10) 
+  ) +
+  labs(
+    x = "Âge", 
+    y = NULL,  
+    fill = NULL 
+  ) + 
+  scale_fill_manual(values = c(
+    "Blessé hospitalisé" = "#D1A3D9", 
+    "Blessé léger" = "#D1C4E9", 
+    "Indemne" = "grey", 
+    "Tué" = "#7F669F"
+  )) +
+  scale_x_continuous(breaks = seq(0, 100, by = 20)) +
+  geom_vline(xintercept = 23, color = "#7F669F", linetype = "dashed", size = 1) +
+  guides(fill = guide_legend(title = "Gravité", override.aes = list(alpha = 0.6), reverse = TRUE))
+})
+```
+
+
+# À propos
+
+## Premier paragraphe
+
+### **Description**
+
+<div class="boxed-text">
+  <p>Ce **dashboard interactif** a été réalisé dans le cadre d'une étude sur **l'accidentologie en France en 2022.** 
+  Il permet d'explorer différentes données via une **carte interactive** des départements français.</p>
+  <p>Le but est de visualiser d'abord une **tendance globale**, puis d'examiner plus en détail ce qui se passe **par département** : 
+  qui provoque les accidents, la gravité des accidents, les types de trajets impliqués, ainsi que le nombre de morts et de blessés graves.
+  <p>On peut constater principalement dans **le premier onglet** que les accidents se font principalement sur des voies communales et des routes départementale, le plus souvent lors d'une promenade ou du trajet pour aller au travail. 
+  <p>Dans **le second onglet**, on apprend que ce sont majoritairement les jeunes d'environ 20 à 25 ans et les personnes âgées qui sont les acteurs de ces accidents.</p>
+</div>
+
+## Deuxième paragraphe
+
+### **Ressources**
+
+<div class="boxed-text">
+  <p>Voici les **données** que nous avons utilisées, disponibles sur le site **d'Open Data University** :</p>
+  <ul>
+    <li>[Caractéristiques-2022.csv](https://www.data.gouv.fr/fr/datasets/r/5fc299c0-4598-4c29-b74c-6a67b0cc27e7)</li>
+    <li>[Lieux-2022.csv](https://www.data.gouv.fr/fr/datasets/r/a6ef711a-1f03-44cb-921a-0ce8ec975995)</li>
+    <li>[Vehicules-2022.csv](https://www.data.gouv.fr/fr/datasets/r/c9742921-4427-41e5-81bc-f13af8bc31a0)</li>
+    <li>[Usager-2022.csv](https://www.data.gouv.fr/fr/datasets/r/62c20524-d442-46f5-bfd8-982c59763ec8)</li>
+  </ul>
+  <p>La carte utilisée pour ce projet a été importée depuis le dépôt **GitHub** : 
+    <a href="https://raw.githubusercontent.com/gregoiredavid/france-geojson/master/departements.geojson" target="_blank">
+      https://raw.githubusercontent.com/gregoiredavid/france-geojson/master/departements.geojson
+    </a>.
+  </p>
+</div>
+
+## Troisième paragraphe
+
+### **Auteurs**
+
+<div class="boxed-text">
+  <p>Ce dasboard a été produit dans le cadre d'un projet universitaire pour le [Master 1 MECEN](https://mecen.univ-tours.fr/) de [l'Université de Tours](https://www.univ-tours.fr/). en collaboration avec [Open Data University](https://www.opendatauniversity.org/). par **Iruomachi IRUOMAH**, **Emmanuel PAGUIEL** et **Yann BROCHET**.</p>
+</div>
+
